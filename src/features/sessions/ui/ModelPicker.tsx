@@ -346,11 +346,21 @@ export function ModelPicker({
   const triggerEffortLabel = triggerEffortSetting
     ? settingValueLabel(triggerEffortSetting, values)
     : undefined;
+  const fastModeEnabled = current.settings?.some((setting) => {
+    const value = settingValue(setting, values);
+    return (
+      (setting.id === "serviceTier" &&
+        setting.kind === "select" &&
+        (value === "priority" || value === "fast")) ||
+      (setting.id === "fast" && setting.kind === "toggle" && value === "true")
+    );
+  });
   const triggerTitle = [
     HARNESS_TITLE[current.harness],
     current.provider?.name,
     current.name,
     triggerEffortLabel,
+    fastModeEnabled ? "Fast mode" : undefined,
   ]
     .filter(Boolean)
     .join(" · ");
@@ -691,7 +701,7 @@ export function ModelPicker({
           current.provider ? `, ${current.provider.name},` : ""
         } ${current.name}${
           triggerEffortLabel ? `, effort ${triggerEffortLabel}` : ""
-        }`}
+        }${fastModeEnabled ? ", fast mode" : ""}`}
         aria-keyshortcuts={`${MOD}.`}
         aria-expanded={open || recentMenu != null}
         aria-haspopup={hideSettings ? "dialog" : "menu"}
@@ -729,6 +739,13 @@ export function ModelPicker({
           >
             {triggerEffortLabel}
           </span>
+        ) : null}
+        {fastModeEnabled ? (
+          <Zap
+            className="size-3.5 shrink-0 text-accent"
+            strokeWidth={1.75}
+            aria-hidden="true"
+          />
         ) : null}
         <ChevronDown
           className={`size-3 shrink-0 text-content/50 ${open ? "rotate-180" : ""}`}
@@ -1233,17 +1250,9 @@ function SelectPill({
 
   const value = settingValue(setting, values);
   const valueLabel = settingValueLabel(setting, values);
+  const label = settingLabel(setting);
   const menuSettings = [setting, ...(additionalSettings ?? [])];
   const grouped = menuSettings.length > 1;
-  const summary = menuSettings
-    .map((item) => `${settingLabel(item)}: ${settingValueLabel(item, values)}`)
-    .join(", ");
-  const fastEnabled = additionalSettings?.some((item) => {
-    const value = settingValue(item, values);
-    return item.id === "fast"
-      ? value === "true"
-      : item.id === "serviceTier" && (value === "fast" || value === "priority");
-  });
   const menuOptions = menuSettings.flatMap((menuSetting) =>
     menuSetting.options.map((option) => ({ setting: menuSetting, option })),
   );
@@ -1273,14 +1282,14 @@ function SelectPill({
       <button
         ref={button}
         type="button"
-        title={summary}
-        aria-label={summary}
+        title={`${label}: ${valueLabel}`}
+        aria-label={`${label}: ${valueLabel}`}
         aria-expanded={open}
         aria-haspopup="menu"
         data-model-control
         onMouseDown={(event) => event.preventDefault()}
         onClick={() => (open ? dismiss(true) : openPicker())}
-        className={`${controlClass(variant, open)}${fastEnabled ? " min-w-max" : ""}`}
+        className={controlClass(variant, open)}
       >
         {isEffortSetting(setting) ? (
           <Gauge className="size-3.5 shrink-0" strokeWidth={1.75} />
@@ -1292,15 +1301,6 @@ function SelectPill({
         >
           {valueLabel}
         </span>
-        {fastEnabled ? (
-          <Zap
-            className="size-3.5 shrink-0 text-amber-600 dark:text-amber-400"
-            fill="currentColor"
-            strokeWidth={1.75}
-            role="img"
-            aria-label="Fast mode"
-          />
-        ) : null}
         <ChevronDown
           className={`size-3 shrink-0 text-content/50 ${open ? "rotate-180" : ""}`}
           strokeWidth={1.75}

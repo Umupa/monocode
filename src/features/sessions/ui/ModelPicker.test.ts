@@ -128,6 +128,92 @@ function inputText(input: HTMLInputElement, value: string) {
 }
 
 describe("model picker", () => {
+  it.each([
+    ["codex", "serviceTier", "select", "priority", "default"],
+    ["codex", "serviceTier", "select", "fast", "default"],
+    ["claude", "fast", "toggle", "true", "false"],
+    ["omp", "fast", "toggle", "true", "false"],
+  ] as const)(
+    "shows an inline fast indicator for %s %s (%s=%s)",
+    (harness, id, kind, enabled, disabled) => {
+      const model = `${harness}:fast-indicator`;
+      const plainModel = `${harness}:plain`;
+      const catalog = (value: string) =>
+        act(() =>
+          setHarnessModels(harness, [
+            {
+              id: model,
+              harness,
+              name: "Test model",
+              nativeId: "test",
+              settings: [
+                {
+                  id: "reasoningEffort",
+                  label: "Reasoning",
+                  kind: "select",
+                  value: "medium",
+                  options: [{ value: "medium", label: "Medium" }],
+                },
+                {
+                  id,
+                  kind,
+                  label: "Fast",
+                  value,
+                  options: [
+                    { value: enabled, label: "On" },
+                    { value: disabled, label: "Off" },
+                  ],
+                },
+              ],
+            },
+            { id: plainModel, harness, name: "Plain model", nativeId: "plain" },
+          ]),
+        );
+      const render = (
+        values: Record<string, string>,
+        selected = model,
+        hideSettings = false,
+      ) =>
+        act(() =>
+          root.render(
+            createElement(ModelPicker, {
+              harness,
+              model: selected,
+              values,
+              hideSettings,
+              onChange: vi.fn(),
+              onSettingsChange: vi.fn(),
+            }),
+          ),
+        );
+      const trigger = () =>
+        container.querySelector<HTMLButtonElement>("button[aria-haspopup]")!;
+      const lightning = () => trigger().querySelector("svg.text-accent");
+      catalog(disabled);
+      render({ [id]: enabled });
+      expect(lightning()).not.toBeNull();
+      expect(lightning()?.previousElementSibling?.textContent).toBe("Medium");
+      expect(lightning()?.nextElementSibling).toBe(trigger().lastElementChild);
+      expect(lightning()?.getAttribute("fill")).toBe("none");
+      expect(trigger().textContent).toBe("Test modelMedium");
+      expect(container.querySelectorAll("button")).toHaveLength(1);
+      expect(trigger().getAttribute("aria-label")).toContain("fast mode");
+      expect(trigger().title).toContain("Fast mode");
+      render({ [id]: disabled });
+      expect(lightning()).toBeNull();
+      expect(trigger().getAttribute("aria-label")).not.toContain("fast mode");
+      catalog(enabled);
+      render({});
+      expect(lightning()).not.toBeNull();
+      render({ [id]: disabled });
+      expect(lightning()).toBeNull();
+      render({ [id]: enabled }, plainModel);
+      expect(lightning()).toBeNull();
+      render({ [id]: enabled }, model, true);
+      expect(lightning()).not.toBeNull();
+    },
+  );
+
   it("shows the model name and effort in the combined picker", () => {
     const onChange = vi.fn();
     const onSettingsChange = vi.fn();
@@ -798,101 +884,6 @@ describe("model picker", () => {
     },
   );
 
-  it.each([
-    { id: "serviceTier", value: "fast", off: "default", label: "Service Tier" },
-    {
-      id: "serviceTier",
-      value: "priority",
-      off: "default",
-      label: "Service Tier",
-    },
-    { id: "fast", value: "true", off: "false", label: "Fast" },
-  ])(
-    "keeps $id=$value visible after closing the menu",
-    ({ id, value, off, label }) => {
-      const model = "codex:fast-visibility";
-      setHarnessModels("codex", [
-        {
-          id: model,
-          harness: "codex",
-          name: "Test model",
-          nativeId: "test",
-          settings: [
-            {
-              id: "reasoningEffort",
-              label: "Reasoning",
-              kind: "select",
-              value: "xhigh",
-              options: [{ value: "xhigh", label: "Extra High" }],
-            },
-            {
-              id,
-              label,
-              kind: id === "fast" ? "toggle" : "select",
-              value,
-              options: [
-                { value: off, label: id === "fast" ? "Off" : "Standard" },
-                { value, label: id === "fast" ? "On" : "Fast" },
-              ],
-            },
-          ],
-        },
-      ]);
-      const render = (values: Record<string, string>) =>
-        act(() =>
-          root.render(
-            createElement(ModelControlPills, {
-              harness: "codex",
-              model,
-              values,
-              onSettingsChange: render,
-            }),
-          ),
-        );
-      // Missing explicit values must reflect the model's defaults too.
-      render({});
-      const trigger = () =>
-        container.querySelector<HTMLButtonElement>(
-          'button[aria-haspopup="menu"]',
-        )!;
-      expect(trigger().textContent).toContain("Extra High");
-      expect(trigger().querySelector('[aria-label="Fast mode"]')).not.toBeNull();
-      expect(
-        trigger().querySelector('[aria-label="Fast mode"]')
-          ?.previousElementSibling?.textContent,
-      ).toBe("Extra High");
-      expect(trigger().textContent).toBe("Extra High");
-      expect(trigger().getAttribute("aria-label")).toContain(
-        `${label}: ${id === "fast" ? "On" : "Fast"}`,
-      );
-      expect(trigger().title).toContain(
-        `${label}: ${id === "fast" ? "On" : "Fast"}`,
-      );
-
-      act(() => trigger().click());
-      const option = (optionLabel: string) =>
-        [
-          ...container.querySelectorAll<HTMLButtonElement>(
-            '[role="menuitemradio"]',
-          ),
-        ].find((button) => button.textContent === optionLabel)!;
-      expect(
-        option(id === "fast" ? "On" : "Fast").getAttribute("aria-checked"),
-      ).toBe("true");
-      act(() => option(id === "fast" ? "Off" : "Standard").click());
-      expect(container.querySelector('[role="menu"]')).toBeNull();
-      expect(trigger().querySelector('[aria-label="Fast mode"]')).toBeNull();
-      expect(trigger().textContent).toContain("Extra High");
-      act(() => trigger().click());
-      expect(
-        option(id === "fast" ? "Off" : "Standard").getAttribute("aria-checked"),
-      ).toBe("true");
-      act(() => option(id === "fast" ? "On" : "Fast").click());
-      expect(container.querySelector('[role="menu"]')).toBeNull();
-      expect(trigger().querySelector('[aria-label="Fast mode"]')).not.toBeNull();
-    },
-  );
-
   it("groups the service tier inside the effort popover", () => {
     setHarnessModels("codex", [
       {
@@ -941,7 +932,7 @@ describe("model picker", () => {
       container.querySelector('button[aria-label="Service Tier: Standard"]'),
     ).toBeNull();
     const effortPill = container.querySelector<HTMLButtonElement>(
-      'button[aria-label="Reasoning: High, Service Tier: Standard"]',
+      'button[aria-label="Reasoning: High"]',
     )!;
     act(() => effortPill.click());
 
@@ -1016,7 +1007,7 @@ describe("model picker", () => {
       container.querySelector('button[aria-label="Fast: Off"]'),
     ).toBeNull();
     const effortPill = container.querySelector<HTMLButtonElement>(
-      'button[aria-label="Effort: High, Fast: Off"]',
+      'button[aria-label="Effort: High"]',
     )!;
     act(() => effortPill.click());
 
