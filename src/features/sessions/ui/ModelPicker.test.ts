@@ -798,6 +798,101 @@ describe("model picker", () => {
     },
   );
 
+  it.each([
+    { id: "serviceTier", value: "fast", off: "default", label: "Service Tier" },
+    {
+      id: "serviceTier",
+      value: "priority",
+      off: "default",
+      label: "Service Tier",
+    },
+    { id: "fast", value: "true", off: "false", label: "Fast" },
+  ])(
+    "keeps $id=$value visible after closing the menu",
+    ({ id, value, off, label }) => {
+      const model = "codex:fast-visibility";
+      setHarnessModels("codex", [
+        {
+          id: model,
+          harness: "codex",
+          name: "Test model",
+          nativeId: "test",
+          settings: [
+            {
+              id: "reasoningEffort",
+              label: "Reasoning",
+              kind: "select",
+              value: "xhigh",
+              options: [{ value: "xhigh", label: "Extra High" }],
+            },
+            {
+              id,
+              label,
+              kind: id === "fast" ? "toggle" : "select",
+              value,
+              options: [
+                { value: off, label: id === "fast" ? "Off" : "Standard" },
+                { value, label: id === "fast" ? "On" : "Fast" },
+              ],
+            },
+          ],
+        },
+      ]);
+      const render = (values: Record<string, string>) =>
+        act(() =>
+          root.render(
+            createElement(ModelControlPills, {
+              harness: "codex",
+              model,
+              values,
+              onSettingsChange: render,
+            }),
+          ),
+        );
+      // Missing explicit values must reflect the model's defaults too.
+      render({});
+      const trigger = () =>
+        container.querySelector<HTMLButtonElement>(
+          'button[aria-haspopup="menu"]',
+        )!;
+      expect(trigger().textContent).toContain("Extra High");
+      expect(trigger().querySelector('[aria-label="Fast mode"]')).not.toBeNull();
+      expect(
+        trigger().querySelector('[aria-label="Fast mode"]')
+          ?.previousElementSibling?.textContent,
+      ).toBe("Extra High");
+      expect(trigger().textContent).toBe("Extra High");
+      expect(trigger().getAttribute("aria-label")).toContain(
+        `${label}: ${id === "fast" ? "On" : "Fast"}`,
+      );
+      expect(trigger().title).toContain(
+        `${label}: ${id === "fast" ? "On" : "Fast"}`,
+      );
+
+      act(() => trigger().click());
+      const option = (optionLabel: string) =>
+        [
+          ...container.querySelectorAll<HTMLButtonElement>(
+            '[role="menuitemradio"]',
+          ),
+        ].find((button) => button.textContent === optionLabel)!;
+      expect(
+        option(id === "fast" ? "On" : "Fast").getAttribute("aria-checked"),
+      ).toBe("true");
+      act(() => option(id === "fast" ? "Off" : "Standard").click());
+      expect(container.querySelector('[role="menu"]')).toBeNull();
+      expect(trigger().querySelector('[aria-label="Fast mode"]')).toBeNull();
+      expect(trigger().textContent).toContain("Extra High");
+      act(() => trigger().click());
+      expect(
+        option(id === "fast" ? "Off" : "Standard").getAttribute("aria-checked"),
+      ).toBe("true");
+      act(() => option(id === "fast" ? "On" : "Fast").click());
+      expect(container.querySelector('[role="menu"]')).toBeNull();
+      expect(trigger().querySelector('[aria-label="Fast mode"]')).not.toBeNull();
+    },
+  );
+
   it("groups the service tier inside the effort popover", () => {
     setHarnessModels("codex", [
       {
@@ -846,7 +941,7 @@ describe("model picker", () => {
       container.querySelector('button[aria-label="Service Tier: Standard"]'),
     ).toBeNull();
     const effortPill = container.querySelector<HTMLButtonElement>(
-      'button[aria-label="Reasoning: High"]',
+      'button[aria-label="Reasoning: High, Service Tier: Standard"]',
     )!;
     act(() => effortPill.click());
 
@@ -921,7 +1016,7 @@ describe("model picker", () => {
       container.querySelector('button[aria-label="Fast: Off"]'),
     ).toBeNull();
     const effortPill = container.querySelector<HTMLButtonElement>(
-      'button[aria-label="Effort: High"]',
+      'button[aria-label="Effort: High, Fast: Off"]',
     )!;
     act(() => effortPill.click());
 
