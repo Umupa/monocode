@@ -746,14 +746,29 @@ fn existing_bundle_root_from_exe(exe: &Path) -> Option<(std::path::PathBuf, Stri
 
 #[cfg(debug_assertions)]
 fn relaunch_from_dev_bundle() -> Result<(), String> {
-    use std::os::unix::fs::PermissionsExt;
     use std::os::unix::process::CommandExt;
     use std::process::Command;
 
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
-    if let Some((app, app_name)) = existing_bundle_root_from_exe(&exe) {
-        write_dev_bundle_icons(&app, &app_name)?;
+    let Some(bundled) = prepare_dev_bundle(&exe)? else {
         return Ok(());
+    };
+    let err = Command::new(&bundled)
+        .args(std::env::args_os().skip(1))
+        .exec();
+    Err(err.to_string())
+}
+
+#[cfg(debug_assertions)]
+fn prepare_dev_bundle(exe: &Path) -> Result<Option<std::path::PathBuf>, String> {
+    use std::os::unix::fs::PermissionsExt;
+    use std::process::Command;
+
+    if existing_bundle_root_from_exe(exe).is_some() {
+        // Tauri has already packaged this app. Rewriting its plist with the
+        // default dev identity can make a custom build share the installed
+        // app's WebKit storage, and invalidates the bundle's signature.
+        return Ok(None);
     }
     let app_name = dev_bundle_name_from_env(DEV_BUNDLE_DEFAULT_NAME);
 
@@ -769,7 +784,7 @@ fn relaunch_from_dev_bundle() -> Result<(), String> {
     let _ = std::fs::remove_file(&bundled);
     // A copy, not a hard link: re-signing below rewrites the file, and the
     // linked original is the executable running this code.
-    std::fs::copy(&exe, &bundled).map_err(|e| e.to_string())?;
+    std::fs::copy(exe, &bundled).map_err(|e| e.to_string())?;
     let mut perms = std::fs::metadata(&bundled)
         .map_err(|e| e.to_string())?
         .permissions();
@@ -789,10 +804,7 @@ fn relaunch_from_dev_bundle() -> Result<(), String> {
         eprintln!("monocode: macos dev bundle: codesign failed; notifications stay off");
     }
 
-    let err = Command::new(&bundled)
-        .args(std::env::args_os().skip(1))
-        .exec();
-    Err(err.to_string())
+    Ok(Some(bundled))
 }
 
 #[cfg(debug_assertions)]
@@ -980,5 +992,31 @@ mod tests {
         let plist = String::from_utf8(dev_bundle_plist("MonoCode Dev")).unwrap();
         assert!(plist.contains("<string>MonoCode Dev</string>"));
         assert!(!plist.contains("<string>MonoCode</string>"));
+    }
+
+    #[test]
+    fn dev_startup_preserves_an_existing_bundle_identity_and_resources() {
+        let (root, exe) = test_bundle_exe_path("MonoCode Test.app");
+        let app = exe.parent().unwrap().parent().unwrap().parent().unwrap();
+        let plist_path = app.join("Contents/Info.plist");
+        let plist = br#"<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0"><dict>
+<key>CFBundleIdentifier</key><string>com.example.monocode-test</string>
+<key>CFBundleShortVersionString</key><string>9.8.7</string>
+<key>CFBundleExecutable</key><string>monocode</string>
+</dict></plist>"#;
+        std::fs::write(&plist_path, plist).unwrap();
+        let resources = app.join("Contents/Resources");
+        std::fs::create_dir_all(&resources).unwrap();
+        let icon = resources.join("AppIcon.icns");
+        let assets = resources.join("Assets.car");
+        std::fs::write(&icon, b"bundled icon").unwrap();
+        std::fs::write(&assets, b"bundled assets").unwrap();
+
+        assert_eq!(prepare_dev_bundle(&exe).unwrap(), None);
+        assert_eq!(std::fs::read(&plist_path).unwrap(), plist);
+        assert_eq!(std::fs::read(icon).unwrap(), b"bundled icon");
+        assert_eq!(std::fs::read(assets).unwrap(), b"bundled assets");
+        std::fs::remove_dir_all(root).unwrap();
     }
 }
